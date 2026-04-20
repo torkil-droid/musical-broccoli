@@ -376,7 +376,10 @@ FAMILIEKRITERIER FOR SCORING (1–10):
 - Tilberedning under 35 min: +0,5
 - Variasjon viktig: ikke samme proteinkilde to ganger blant de 5 beste; ikke to pasta- eller to risretter
 
-SVAR FORMAT – kun dette JSON-objektet, ingenting annet:
+KRITISK: Svar med KUN et JSON-objekt. Ingen tekst før, ingen tekst etter, ingen forklaring, ingen markdown. Bare JSON.
+Feltene kcal/protein/saturated_fat/carbs hentes fra input-feltene kcal/prot/satfat/carb.
+
+SVAR FORMAT:
 {"dishes":[{"id":"slug","name":"Navn","description":"1-2 setninger","time":30,"tags":["fisk","barnevennlig"],"protein_source":"fisk","category":"pasta","nutrition":{"kcal":650,"protein":38,"fat":22,"saturated_fat":4,"carbs":60},"score":8.5,"score_reason":"Én setning"}]}
 
 Gyldige protein_source-verdier: fisk, kylling, storfekjott, lam, svin, vegetar, egg, skalldyr, annet
@@ -480,17 +483,28 @@ function parseDuration(iso) {
 
 // ── Claude scoring ─────────────────────────────────────────────────────────
 async function scoreDishes(rawItems) {
-  const simplified = rawItems.map(r => ({
-    id: r.id || r.slug,
-    name: r.name,
-    headline: r.headline || r.description,
-    prepTime: parseDuration(r.prepTime || r.totalTime),
-    tags: (r.tags || []).map(t => t.name || t).filter(Boolean),
-    nutrition: r.nutritionalValues || r.nutrition || {},
-    category: r.category?.name || r.subcategory?.name || null
-  }));
+  // Limit to 40 most recent and simplify aggressively to reduce token usage
+  const simplified = rawItems.slice(0, 40).map(r => {
+    const nutr = r.nutritionalValues || r.nutrition || {};
+    return {
+      id: r.id || r.slug,
+      name: r.name,
+      desc: (r.headline || r.description || '').slice(0, 120),
+      min: parseDuration(r.prepTime || r.totalTime),
+      tags: (r.tags || []).map(t => t.name || t).filter(Boolean).slice(0, 6),
+      cat: r.category?.name || r.subcategory?.name || null,
+      // Try all known HF nutritional field names
+      kcal: nutr.energyKcal || nutr.kcal || nutr.calories || null,
+      prot: nutr.proteins   || nutr.protein || null,
+      fat:  nutr.fats       || nutr.fat || null,
+      satfat: nutr.saturatedFat || nutr.saturatedFats || nutr.saturated_fat || null,
+      carb: nutr.carbohydrates || nutr.carbs || nutr.carbohydrate || null
+    };
+  });
 
-  const userMsg = `Her er ${simplified.length} retter fra HelloFresh Norge denne uken. Score dem alle og returner som JSON:\n\n${JSON.stringify(simplified, null, 2)}`;
+  const userMsg = `Her er ${simplified.length} retter fra HelloFresh Norge. Score alle og returner kun JSON:
+
+${JSON.stringify(simplified)}`;
 
   const res = await fetch(CLAUDE_API, {
     method: 'POST',
@@ -502,7 +516,7 @@ async function scoreDishes(rawItems) {
     },
     body: JSON.stringify({
       model: MODEL,
-      max_tokens: 8192,
+      max_tokens: 16000,
       system: SCORING_SYSTEM,
       messages: [{ role: 'user', content: userMsg }]
     })
@@ -512,8 +526,12 @@ async function scoreDishes(rawItems) {
   if (!res.ok) throw new Error(data.error?.message || `Claude API-feil ${res.status}`);
 
   const text = (data.content || []).filter(b => b.type === 'text').map(b => b.text).join('');
+  console.log('Claude raw response:', text.slice(0, 500));
   const parsed = parseJSONFull(text);
-  if (!parsed?.dishes?.length) throw new Error('Claude klarte ikke å score rettene. Prøv igjen.');
+  if (!parsed?.dishes?.length) {
+    console.error('Full Claude response:', text);
+    throw new Error('Claude klarte ikke å score rettene. Prøv igjen.');
+  }
   return parsed.dishes;
 }
 
