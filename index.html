@@ -512,6 +512,38 @@ async function getHFToken() {
   return data.access_token;
 }
 
+function extractDinnerRecipes(data) {
+  let items = data.items || data.recipes || data.results || [];
+
+  // Handle weeks wrapper
+  if (!items.length && data.weeks?.[0]) {
+    const w = data.weeks[0];
+    items = w.items || w.recipes || w.meals || [];
+  }
+
+  // If items are category buckets (have sub-items arrays), drill into dinner bucket
+  if (items.some(i => Array.isArray(i.items) && i.items.length > 0)) {
+    const dinnerBucket = items.find(i =>
+      /middag|dinner|main/i.test(i.name || i.slug || i.category || '')
+    );
+    items = dinnerBucket?.items?.length ? dinnerBucket.items
+           : items.flatMap(i => (Array.isArray(i.items) ? i.items : [i]));
+  }
+
+  // Filter: keep only actual dinner recipes
+  return items.filter(item => {
+    if (!item.name) return false;
+    // Reject category buckets (name contains year-week like "2026-W17")
+    if (/\d{4}-W\d{2}/.test(item.name)) return false;
+    // Reject obvious non-dinner keywords
+    if (/fruktkurv|frokost|lunsj|forrett|dessert|tillegg|free4life|auto.?meny|ukjent/i.test(item.name)) return false;
+    // Accept if it has cooking time, nutrition, or ingredients
+    return !!(item.prepTime || item.totalTime || item.time ||
+              item.nutritionalValues || item.nutrition ||
+              item.ingredients?.length);
+  });
+}
+
 function isoWeek() {
   const now = new Date();
   const d = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
@@ -526,22 +558,24 @@ function isoWeek() {
 async function fetchHFRecipes(token) {
   const week = isoWeek();
   const hdr = { 'Authorization': `Bearer ${token}` };
+  // recipes/search first (returns actual recipes directly),
+  // menus endpoints as fallback (need deeper parsing)
   const candidates = [
-    `https://gw.hellofresh.com/api/menus?country=no&locale=nb-NO&week=${week}`,
     `${HF_RECIPES}?country=no&locale=nb-NO&deliverable=true&limit=50&order=-date`,
-    `${HF_RECIPES}?country=no&locale=nb-NO&week=${week}&limit=50`,
     `${HF_RECIPES}?country=no&locale=nb-NO&limit=50&order=-date`,
+    `https://gw.hellofresh.com/api/menus?country=no&locale=nb-NO&week=${week}`,
+    `https://gw.hellofresh.com/api/menus?country=no&locale=nb-NO`,
   ];
   for (const url of candidates) {
     try {
       const res = await fetch(url, { headers: hdr });
       if (!res.ok) continue;
       const data = await res.json();
-      const items = data.items || data.recipes || data.results || data.weeks?.[0]?.items || [];
+      const items = extractDinnerRecipes(data);
       if (items.length > 0) return items;
     } catch {}
   }
-  throw new Error('Fant ingen retter fra HelloFresh API. Prøv igjen om litt.');
+  throw new Error('Fant ingen middagsretter fra HelloFresh API. Prøv igjen om litt.');
 }
 
 function parseDuration(iso) {
