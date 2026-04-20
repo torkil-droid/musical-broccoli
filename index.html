@@ -573,11 +573,8 @@ async function scoreDishes(rawItems) {
     }
   }));
 
-  const userMsg = `${simplified.length} retter fra HelloFresh Norge – score alle:
+  const userMsg = `${simplified.length} retter fra HelloFresh Norge – score alle og svar kun med JSON:
 ${JSON.stringify(simplified)}`;
-
-  // Prefill forces Claude to output pure JSON with no preamble
-  const PREFILL = '{"dishes":[';
 
   const res = await fetch(CLAUDE_API, {
     method: 'POST',
@@ -591,18 +588,14 @@ ${JSON.stringify(simplified)}`;
       model: MODEL,
       max_tokens: 8192,
       system: SCORING_SYSTEM,
-      messages: [
-        { role: 'user', content: userMsg },
-        { role: 'assistant', content: PREFILL }
-      ]
+      messages: [{ role: 'user', content: userMsg }]
     })
   });
 
   const data = await res.json();
   if (!res.ok) throw new Error(data.error?.message || `Claude API-feil ${res.status}`);
 
-  const tail = (data.content || []).filter(b => b.type === 'text').map(b => b.text).join('');
-  const text = PREFILL + tail;
+  const text = (data.content || []).filter(b => b.type === 'text').map(b => b.text).join('');
   const parsed = parseJSONFull(text);
   if (!parsed?.dishes?.length) {
     console.error('Claude response:', text.slice(0, 800));
