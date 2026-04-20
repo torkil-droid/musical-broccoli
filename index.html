@@ -360,10 +360,17 @@ const API_URL   = 'https://api.anthropic.com/v1/messages';
 
 const SYSTEM = `Du er en middagsplanlegger for en norsk familie i Trondheim: 2 voksne + barn 3,5 år. Den ene voksne har høyt kolesterol.
 
-OPPGAVE:
-1. Bruk web_search-verktøyet til å søke opp hellofresh.no/menus og hent ALLE ukens tilgjengelige middagsretter med næringsinnhold per porsjon.
-2. Score hver rett 1–10 etter familiekriteriene nedenfor.
-3. Svar KUN med et gyldig JSON-objekt – ingen forklaring, ingen markdown-kodeblokk, bare ren JSON.
+⚠️ SVÆRT VIKTIG – IKKE FINN PÅ RETTER:
+Du MÅ bruke web_search og finne de FAKTISKE rettene som HelloFresh Norge tilbyr denne uken.
+Hellofresh.no er en JavaScript-app – rå HTML gir lite innhold. Bruk derfor GOOGLE til å finne indeksert innhold.
+Hvis du ikke finner nok ekte retter: returner {"error":"Fant ikke rettene","dishes":[]} – aldri finn på retter selv.
+
+SØKESTRATEGI (bruk web_search flere ganger):
+1. Søk: "hellofresh.no meny" eller "hellofresh norge meny denne uken"
+2. Søk: "site:hellofresh.no meny" for å finne indekserte menysider
+3. Søk: "hellofresh.no/menus retter 2025" eller tilsvarende med årstall
+4. Prøv gjerne direkte URL: https://www.hellofresh.no/menus/
+Bruk resultatene fra Google-søk – Google kjører JavaScript og har indeksert det faktiske innholdet.
 
 FAMILIEKRITERIER FOR SCORING (1–10):
 - Lavt mettet fett er svært viktig pga. kolesterol (under 4g = bonus, over 7g = trekk)
@@ -382,7 +389,11 @@ Gyldige protein_source-verdier: fisk, kylling, storfekjott, lam, svin, vegetar, 
 Gyldige category-verdier: pasta, ris, wok, suppe, salat, burger, taco, annet
 Gyldige tags-verdier: fisk, barnevennlig, vegetar, kylling, rodtkjott, raskt, sunt, egg`;
 
-const USER_MSG = 'Søk på hellofresh.no/menus og finn alle ukens middagsretter med næringsinnhold per porsjon. Returner alle retter scoret som JSON.';
+const USER_MSG = `Bruk web_search til å finne de faktiske HelloFresh Norge-rettene for denne uken (april/mai 2025).
+Søk på Google etter "hellofresh.no meny" og "hellofresh norge ukens retter" – Google har indeksert det faktiske innholdet.
+Prøv også direkte: https://www.hellofresh.no/menus/
+Finn alle tilgjengelige retter med næringsinnhold, score dem, og returner som JSON.
+Hvis du ikke finner ekte retter, returner {"error":"Fant ikke rettene","dishes":[]}.`;
 
 // ── App state ──────────────────────────────────────────────────────────────
 let apiKey = '';
@@ -493,9 +504,12 @@ async function fetch_dishes() {
 
     setStep(2);
 
-    const dishes = parseJSON(finalText);
+    const parsed = parseJSONFull(finalText);
+    if (parsed && parsed.error)
+      throw new Error('Claude fant ikke rettene på hellofresh.no denne gangen. Prøv igjen – Google-indeksen oppdateres jevnlig og neste forsøk kan gi bedre resultat.');
+    const dishes = parsed && parsed.dishes ? parsed.dishes : parsed;
     if (!dishes || dishes.length === 0)
-      throw new Error('Klarte ikke å hente retter fra HelloFresh. Prøv igjen – siden kan være opptatt.');
+      throw new Error('Claude fant ikke rettene på hellofresh.no. Prøv igjen om litt.');
 
     allDishes = [...dishes].sort((a, b) => (b.score || 0) - (a.score || 0));
     shown = pickFive(allDishes);
@@ -511,33 +525,32 @@ async function fetch_dishes() {
 }
 
 // ── JSON extraction ────────────────────────────────────────────────────────
-function parseJSON(text) {
+function parseJSONFull(text) {
   text = (text || '').trim();
 
   // 1. Straight parse
-  try { const p = JSON.parse(text); if (p?.dishes) return p.dishes; } catch {}
+  try { const p = JSON.parse(text); if (p && (p.dishes || p.error)) return p; } catch {}
 
-  // 2. Find outermost {...} that contains "dishes"
+  // 2. Find outermost {...}
   const start = text.indexOf('{');
   if (start !== -1) {
     try {
       const p = JSON.parse(text.slice(start));
-      if (p?.dishes) return p.dishes;
+      if (p && (p.dishes || p.error)) return p;
     } catch {}
-    // Try to find matching closing brace
     let depth = 0, end = -1;
     for (let i = start; i < text.length; i++) {
       if (text[i] === '{') depth++;
       else if (text[i] === '}') { depth--; if (depth === 0) { end = i; break; } }
     }
     if (end !== -1) {
-      try { const p = JSON.parse(text.slice(start, end + 1)); if (p?.dishes) return p.dishes; } catch {}
+      try { const p = JSON.parse(text.slice(start, end + 1)); if (p && (p.dishes || p.error)) return p; } catch {}
     }
   }
 
   // 3. Code block
   const cm = text.match(/```(?:json)?\s*([\s\S]*?)```/);
-  if (cm) { try { const p = JSON.parse(cm[1].trim()); if (p?.dishes) return p.dishes; } catch {} }
+  if (cm) { try { const p = JSON.parse(cm[1].trim()); if (p && (p.dishes || p.error)) return p; } catch {} }
 
   return null;
 }
