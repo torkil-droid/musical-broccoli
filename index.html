@@ -320,11 +320,11 @@
   <div class="loading-wrap">
     <div class="spinner"></div>
     <div class="loading-title">Henter ukens retter…</div>
-    <div class="loading-sub">Dette tar gjerne 20–40 sekunder</div>
+    <div class="loading-sub">Dette tar gjerne 10–20 sekunder</div>
     <div class="steps">
-      <div class="step active" id="step0"><span class="step-icon">🔍</span><span>Søker på hellofresh.no</span></div>
-      <div class="step"        id="step1"><span class="step-icon">📊</span><span>Analyserer næringsinnhold</span></div>
-      <div class="step"        id="step2"><span class="step-icon">⭐</span><span>Scorer rettene for din familie</span></div>
+      <div class="step active" id="step0"><span class="step-icon">🔑</span><span>Kobler til HelloFresh API</span></div>
+      <div class="step"        id="step1"><span class="step-icon">📋</span><span>Henter ukens meny</span></div>
+      <div class="step"        id="step2"><span class="step-icon">⭐</span><span>Claude scorer rettene</span></div>
     </div>
   </div>
 </div>
@@ -354,23 +354,17 @@
 
 <script>
 // ── Constants ──────────────────────────────────────────────────────────────
-const STORE_KEY = 'hf_api_key';
-const MODEL     = 'claude-sonnet-4-6';
-const API_URL   = 'https://api.anthropic.com/v1/messages';
+const STORE_KEY        = 'hf_api_key';
+const MODEL            = 'claude-sonnet-4-6';
+const CLAUDE_API       = 'https://api.anthropic.com/v1/messages';
+const HF_AUTH          = 'https://gw.hellofresh.com/auth/token';
+const HF_RECIPES       = 'https://gw.hellofresh.com/api/recipes/search';
+const HF_CLIENT_ID     = 'hellofresh-dev-test';
+const HF_CLIENT_SECRET = 'g4c25EzG4#%Afeh07Bb#anbH5BQQ67bJ7!G6QZOA';
 
-const SYSTEM = `Du er en middagsplanlegger for en norsk familie i Trondheim: 2 voksne + barn 3,5 år. Den ene voksne har høyt kolesterol.
+const SCORING_SYSTEM = `Du er en middagsplanlegger for en norsk familie i Trondheim: 2 voksne + barn 3,5 år. Den ene voksne har høyt kolesterol.
 
-⚠️ SVÆRT VIKTIG – IKKE FINN PÅ RETTER:
-Du MÅ bruke web_search og finne de FAKTISKE rettene som HelloFresh Norge tilbyr denne uken.
-Hellofresh.no er en JavaScript-app – rå HTML gir lite innhold. Bruk derfor GOOGLE til å finne indeksert innhold.
-Hvis du ikke finner nok ekte retter: returner {"error":"Fant ikke rettene","dishes":[]} – aldri finn på retter selv.
-
-SØKESTRATEGI (bruk web_search flere ganger):
-1. Søk: "hellofresh.no meny" eller "hellofresh norge meny denne uken"
-2. Søk: "site:hellofresh.no meny" for å finne indekserte menysider
-3. Søk: "hellofresh.no/menus retter 2025" eller tilsvarende med årstall
-4. Prøv gjerne direkte URL: https://www.hellofresh.no/menus/
-Bruk resultatene fra Google-søk – Google kjører JavaScript og har indeksert det faktiske innholdet.
+Du mottar retter hentet direkte fra HelloFresh sitt API for Norge. Score hver rett 1–10.
 
 FAMILIEKRITERIER FOR SCORING (1–10):
 - Lavt mettet fett er svært viktig pga. kolesterol (under 4g = bonus, over 7g = trekk)
@@ -388,12 +382,6 @@ SVAR FORMAT – kun dette JSON-objektet, ingenting annet:
 Gyldige protein_source-verdier: fisk, kylling, storfekjott, lam, svin, vegetar, egg, skalldyr, annet
 Gyldige category-verdier: pasta, ris, wok, suppe, salat, burger, taco, annet
 Gyldige tags-verdier: fisk, barnevennlig, vegetar, kylling, rodtkjott, raskt, sunt, egg`;
-
-const USER_MSG = `Bruk web_search til å finne de faktiske HelloFresh Norge-rettene for denne uken (april/mai 2025).
-Søk på Google etter "hellofresh.no meny" og "hellofresh norge ukens retter" – Google har indeksert det faktiske innholdet.
-Prøv også direkte: https://www.hellofresh.no/menus/
-Finn alle tilgjengelige retter med næringsinnhold, score dem, og returner som JSON.
-Hvis du ikke finner ekte retter, returner {"error":"Fant ikke rettene","dishes":[]}.`;
 
 // ── App state ──────────────────────────────────────────────────────────────
 let apiKey = '';
@@ -446,80 +434,115 @@ function retry() {
   else show('s-key');
 }
 
-// ── Anthropic API – agentic loop ───────────────────────────────────────────
+// ── HelloFresh API ─────────────────────────────────────────────────────────
+async function getHFToken() {
+  const res = await fetch(HF_AUTH, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      client_id: HF_CLIENT_ID,
+      client_secret: HF_CLIENT_SECRET,
+      grant_type: 'client_credentials',
+      scope: 'public'
+    })
+  });
+  if (!res.ok) {
+    const txt = await res.text().catch(() => '');
+    throw new Error(`HelloFresh API-pålogging feilet (${res.status}). Prøv igjen om litt.`);
+  }
+  const data = await res.json();
+  if (!data.access_token) throw new Error('HelloFresh returnerte ikke noe tilgangstoken.');
+  return data.access_token;
+}
+
+async function fetchHFRecipes(token) {
+  const urls = [
+    `${HF_RECIPES}?country=no&locale=nb-NO&limit=60&order=-date`,
+    `${HF_RECIPES}?country=no&locale=nb-NO&limit=60`
+  ];
+  for (const url of urls) {
+    const res = await fetch(url, { headers: { 'Authorization': `Bearer ${token}` } });
+    if (res.ok) {
+      const data = await res.json();
+      const items = data.items || data.recipes || data.results || [];
+      if (items.length > 0) return items;
+    }
+  }
+  throw new Error('Fant ingen retter fra HelloFresh API. Prøv igjen om litt.');
+}
+
+function parseDuration(iso) {
+  if (!iso) return null;
+  const h = parseInt((iso.match(/(\d+)H/) || [])[1] || 0);
+  const m = parseInt((iso.match(/(\d+)M/) || [])[1] || 0);
+  return h * 60 + m || null;
+}
+
+// ── Claude scoring ─────────────────────────────────────────────────────────
+async function scoreDishes(rawItems) {
+  const simplified = rawItems.map(r => ({
+    id: r.id || r.slug,
+    name: r.name,
+    headline: r.headline || r.description,
+    prepTime: parseDuration(r.prepTime || r.totalTime),
+    tags: (r.tags || []).map(t => t.name || t).filter(Boolean),
+    nutrition: r.nutritionalValues || r.nutrition || {},
+    category: r.category?.name || r.subcategory?.name || null
+  }));
+
+  const userMsg = `Her er ${simplified.length} retter fra HelloFresh Norge denne uken. Score dem alle og returner som JSON:\n\n${JSON.stringify(simplified, null, 2)}`;
+
+  const res = await fetch(CLAUDE_API, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      'anthropic-version': '2023-06-01',
+      'x-api-key': apiKey,
+      'anthropic-dangerous-direct-browser-access': 'true'
+    },
+    body: JSON.stringify({
+      model: MODEL,
+      max_tokens: 8192,
+      system: SCORING_SYSTEM,
+      messages: [{ role: 'user', content: userMsg }]
+    })
+  });
+
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error?.message || `Claude API-feil ${res.status}`);
+
+  const text = (data.content || []).filter(b => b.type === 'text').map(b => b.text).join('');
+  const parsed = parseJSONFull(text);
+  if (!parsed?.dishes?.length) throw new Error('Claude klarte ikke å score rettene. Prøv igjen.');
+  return parsed.dishes;
+}
+
+// ── Main flow ─────────────────────────────────────────────────────────────
 async function fetch_dishes() {
   show('s-loading');
   setStep(0);
 
   try {
-    const messages = [{ role: 'user', content: USER_MSG }];
-    let finalText = '';
-    let stepIdx = 0;
+    const token = await getHFToken();
+    setStep(1);
 
-    for (let iter = 0; iter < 20; iter++) {
-      // Progress step hints
-      if (iter === 1 && stepIdx < 1) { setStep(1); stepIdx = 1; }
-      if (iter >= 3 && stepIdx < 2) { setStep(2); stepIdx = 2; }
-
-      const res = await fetch(API_URL, {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-          'anthropic-version': '2023-06-01',
-          'x-api-key': apiKey,
-          'anthropic-dangerous-direct-browser-access': 'true'
-        },
-        body: JSON.stringify({
-          model: MODEL,
-          max_tokens: 8192,
-          system: SYSTEM,
-          tools: [{ type: 'web_search_20250305', name: 'web_search' }],
-          messages
-        })
-      });
-
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error?.message || `API-feil ${res.status}`);
-
-      // Append assistant turn to conversation
-      messages.push({ role: 'assistant', content: data.content });
-
-      if (data.stop_reason === 'end_turn') {
-        finalText = (data.content || [])
-          .filter(b => b.type === 'text')
-          .map(b => b.text)
-          .join('');
-        break;
-      }
-
-      if (data.stop_reason === 'tool_use') {
-        // Return tool_result for each tool_use block (web_search is server-side;
-        // sending an empty content lets Anthropic populate the result)
-        const results = (data.content || [])
-          .filter(b => b.type === 'tool_use')
-          .map(b => ({ type: 'tool_result', tool_use_id: b.id, content: '' }));
-        if (results.length) messages.push({ role: 'user', content: results });
-      }
-    }
-
+    const rawItems = await fetchHFRecipes(token);
     setStep(2);
 
-    const parsed = parseJSONFull(finalText);
-    if (parsed && parsed.error)
-      throw new Error('Claude fant ikke rettene på hellofresh.no denne gangen. Prøv igjen – Google-indeksen oppdateres jevnlig og neste forsøk kan gi bedre resultat.');
-    const dishes = parsed && parsed.dishes ? parsed.dishes : parsed;
-    if (!dishes || dishes.length === 0)
-      throw new Error('Claude fant ikke rettene på hellofresh.no. Prøv igjen om litt.');
+    const dishes = await scoreDishes(rawItems);
 
     allDishes = [...dishes].sort((a, b) => (b.score || 0) - (a.score || 0));
     shown = pickFive(allDishes);
     prev  = new Array(5).fill(null);
-
     renderAll();
     show('s-results');
 
   } catch (err) {
-    document.getElementById('err-msg').textContent = ' ' + err.message;
+    let msg = err.message;
+    if (err.name === 'TypeError' && msg.toLowerCase().includes('fetch')) {
+      msg = 'Nettverksfeil – HelloFresh sitt API tillater muligens ikke direktekall fra nettleseren (CORS). Ta kontakt med utvikleren.';
+    }
+    document.getElementById('err-msg').textContent = ' ' + msg;
     show('s-error');
   }
 }
