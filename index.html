@@ -255,11 +255,40 @@
     .btn-undo.show { display: block; }
     .btn-undo:active { background: #FDE68A; }
 
+    /* ── Section headers ── */
+    .section-hd { margin: 28px 0 12px; }
+    .section-hd:first-child { margin-top: 0; }
+    .section-title { font-size: 1.05rem; font-weight: 700; color: var(--green-dark); }
+    .section-sub   { font-size: 0.82rem; color: var(--text-muted); margin-top: 3px; }
+
+    /* ── Compact dish row (top-15 + quick lists) ── */
+    .dish-row {
+      background: var(--white);
+      border-radius: 12px;
+      padding: 12px 14px;
+      margin-bottom: 8px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      box-shadow: var(--shadow);
+    }
+    .row-rank  { font-size: 0.85rem; font-weight: 800; color: var(--green-accent); min-width: 22px; }
+    .row-info  { flex: 1; min-width: 0; }
+    .row-name  { font-size: 0.9rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .row-meta  { font-size: 0.73rem; color: var(--text-muted); margin-top: 2px; }
+    .row-score {
+      flex-shrink: 0;
+      background: var(--green-dark); color: #fff;
+      border-radius: 16px; padding: 3px 9px;
+      font-size: 0.8rem; font-weight: 700;
+    }
+    .empty-note { font-size: 0.83rem; color: var(--text-muted); padding: 6px 2px; }
+
     /* Footer link */
     .footer-link {
       display: block;
       text-align: center;
-      margin-top: 24px;
+      margin-top: 32px;
       color: var(--text-muted);
       font-size: 0.8rem;
       cursor: pointer;
@@ -332,11 +361,29 @@
 <!-- ── Screen 3: Resultater ── -->
 <div id="s-results" class="screen">
   <div class="results-wrap">
-    <div class="results-header">
-      <div class="results-title">🌿 Ukens 5 beste retter</div>
-      <div class="results-sub">Trykk 🔄 for å bytte ut en rett mot neste beste alternativ</div>
+
+    <div class="section-hd">
+      <div class="section-title">🌿 Anbefalt ukesmeny</div>
+      <div class="section-sub">5 retter valgt for variasjon og helse · Trykk 🔄 for å bytte</div>
     </div>
     <div id="cards"></div>
+
+    <div class="section-hd">
+      <div class="section-title">💚 Topp 15 sunneste retter</div>
+      <div class="section-sub">Rangert etter helsepoeng – lavt mettet fett, fiber, protein</div>
+    </div>
+    <div id="top15-list"></div>
+
+    <div class="section-hd">
+      <div class="section-title">⚡ Topp 3 under 15 min</div>
+    </div>
+    <div id="quick15-list"></div>
+
+    <div class="section-hd">
+      <div class="section-title">⚡ Topp 3 under 20 min</div>
+    </div>
+    <div id="quick20-list"></div>
+
     <span class="footer-link" onclick="reset()">Bytt API-nøkkel / søk på nytt</span>
   </div>
 </div>
@@ -362,29 +409,36 @@ const HF_RECIPES       = 'https://gw.hellofresh.com/api/recipes/search';
 const HF_CLIENT_ID     = 'hellofresh-dev-test';
 const HF_CLIENT_SECRET = 'g4c25EzG4#%Afeh07Bb#anbH5BQQ67bJ7!G6QZOA';
 
-const SCORING_SYSTEM = `Du er en middagsplanlegger for en norsk familie i Trondheim: 2 voksne + barn 3,5 år. Den ene voksne har høyt kolesterol.
+const SCORING_SYSTEM = `Du er en middagsplanlegger for en norsk familie i Trondheim: 2 voksne + barn 3,5 år.
 
-Du mottar retter hentet direkte fra HelloFresh sitt API for Norge. Score hver rett 1–10.
+FAMILIEN:
+- Mannen har høyt kolesterol → lavt mettet fett er det viktigste kriteriet
+- Kona er laktoseintolerant (tar laktase ved behov, men unngå retter der rømme/fløte/ost er hovedelementet)
+- Barnet på 3,5 år spiser det meste – ingen spesielle begrensninger
+- Alle matkulturer er velkomne
 
-FAMILIEKRITERIER FOR SCORING (1–10):
-- Lavt mettet fett er svært viktig pga. kolesterol (under 4g = bonus, over 7g = trekk)
-- Fisk og sjømat foretrekkes sterkt (+2)
-- Hvitt kjøtt (kylling, kalkun, svin) er OK (+1)
-- Rødt kjøtt (storfekjøtt, lam) gir lavere score (−1)
-- Barnevennlig (mild smak, enkel, ikke eksotisk): positivt for barn 3,5 år (+1)
-- Vegetar OK hvis tilstrekkelig protein (linser, kikerter, egg, ost bra; rent grønnsaksfat trekker)
+SCORINGSKRITERIER (1–10):
+- Mettet fett: under 4g/porsjon = +1 (bonus), 4–7g nøytralt, over 7g = −1,5
+- Fiber: belgfrukter, fullkorn, mange grønnsaker = +0,5 til +1
+- Protein: ≥35g/porsjon = +0,5
+- Fisk og sjømat: +2
+- Hvitt kjøtt (kylling, kalkun, svin): +1
+- Rødt kjøtt (storfekjøtt, lam): −1
+- Retter dominert av fløte/rømme/smeltet ost: −0,5 (laktosehensyn)
 - Tilberedning under 35 min: +0,5
-- Variasjon viktig: ikke samme proteinkilde to ganger blant de 5 beste; ikke to pasta- eller to risretter
 
-KRITISK: Svar med KUN et JSON-objekt. Ingen tekst før, ingen tekst etter, ingen forklaring, ingen markdown. Bare JSON.
-Feltene kcal/protein/saturated_fat/carbs hentes fra input-feltene kcal/prot/satfat/carb.
+NÆRINGSDATA: Feltet "rawNutr" i inputdata er rå næringsinfo fra HelloFresh sitt API. Det kan ha ulike formater:
+- Objekt: {energyKcal:640, proteins:38, fats:18, saturatedFat:4, carbohydrates:55}
+- Array: [{type:"energy",unit:"kcal",amount:640}, {type:"proteins",amount:38}, ...]
+- Strenger: {calories:"516 kcal", proteins:"42 g", fats:"8 g"}
+Trekk alltid ut kcal, protein (g), mettet fett (g) og karbohydrater (g) og legg dem i nutrition-feltet.
 
-SVAR FORMAT:
-{"dishes":[{"id":"slug","name":"Navn","description":"1-2 setninger","time":30,"tags":["fisk","barnevennlig"],"protein_source":"fisk","category":"pasta","nutrition":{"kcal":650,"protein":38,"fat":22,"saturated_fat":4,"carbs":60},"score":8.5,"score_reason":"Én setning"}]}
+SVAR: KUN dette JSON-objektet – ingen tekst rundt, ingen markdown:
+{"dishes":[{"id":"","name":"","description":"1-2 setninger","time":30,"tags":["fisk"],"protein_source":"fisk","category":"pasta","nutrition":{"kcal":650,"protein":38,"fat":22,"saturated_fat":4,"carbs":60},"score":8.5,"score_reason":"Én setning"}]}
 
-Gyldige protein_source-verdier: fisk, kylling, storfekjott, lam, svin, vegetar, egg, skalldyr, annet
-Gyldige category-verdier: pasta, ris, wok, suppe, salat, burger, taco, annet
-Gyldige tags-verdier: fisk, barnevennlig, vegetar, kylling, rodtkjott, raskt, sunt, egg`;
+protein_source: fisk | kylling | storfekjott | lam | svin | vegetar | egg | skalldyr | annet
+category: pasta | ris | wok | suppe | salat | burger | taco | annet
+tags: fisk | vegetar | kylling | rodtkjott | raskt | sunt | egg`;
 
 // ── App state ──────────────────────────────────────────────────────────────
 let apiKey = '';
@@ -458,18 +512,34 @@ async function getHFToken() {
   return data.access_token;
 }
 
+function isoWeek() {
+  const now = new Date();
+  const d = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
+  const day = d.getUTCDay() || 7;
+  d.setUTCDate(d.getUTCDate() + 4 - day);
+  const year = d.getUTCFullYear();
+  const yearStart = new Date(Date.UTC(year, 0, 1));
+  const week = Math.ceil(((d - yearStart) / 86400000 + 1) / 7);
+  return `${year}-W${String(week).padStart(2, '0')}`;
+}
+
 async function fetchHFRecipes(token) {
-  const urls = [
-    `${HF_RECIPES}?country=no&locale=nb-NO&limit=60&order=-date`,
-    `${HF_RECIPES}?country=no&locale=nb-NO&limit=60`
+  const week = isoWeek();
+  const hdr = { 'Authorization': `Bearer ${token}` };
+  const candidates = [
+    `https://gw.hellofresh.com/api/menus?country=no&locale=nb-NO&week=${week}`,
+    `${HF_RECIPES}?country=no&locale=nb-NO&deliverable=true&limit=50&order=-date`,
+    `${HF_RECIPES}?country=no&locale=nb-NO&week=${week}&limit=50`,
+    `${HF_RECIPES}?country=no&locale=nb-NO&limit=50&order=-date`,
   ];
-  for (const url of urls) {
-    const res = await fetch(url, { headers: { 'Authorization': `Bearer ${token}` } });
-    if (res.ok) {
+  for (const url of candidates) {
+    try {
+      const res = await fetch(url, { headers: hdr });
+      if (!res.ok) continue;
       const data = await res.json();
-      const items = data.items || data.recipes || data.results || [];
+      const items = data.items || data.recipes || data.results || data.weeks?.[0]?.items || [];
       if (items.length > 0) return items;
-    }
+    } catch {}
   }
   throw new Error('Fant ingen retter fra HelloFresh API. Prøv igjen om litt.');
 }
@@ -490,22 +560,18 @@ function extractNum(v) {
 }
 
 async function scoreDishes(rawItems) {
-  const simplified = rawItems.slice(0, 40).map(r => {
-    const nutr = r.nutritionalValues || r.nutrition || {};
-    return {
-      id: r.id || r.slug,
-      name: r.name,
-      desc: (r.headline || r.description || '').slice(0, 100),
-      min: parseDuration(r.prepTime || r.totalTime || r.time),
-      tags: (r.tags || []).map(t => t.name || t.slug || t).filter(t => typeof t === 'string').slice(0, 6),
-      cat: r.category?.name || r.subcategory?.name || null,
-      kcal:   extractNum(nutr.energyKcal   || nutr.kcal    || r.calories),
-      prot:   extractNum(nutr.proteins     || nutr.protein  || r.proteins),
-      fat:    extractNum(nutr.fats         || nutr.fat      || r.fats),
-      satfat: extractNum(nutr.saturatedFat || nutr.saturatedFats || nutr.saturated_fat),
-      carb:   extractNum(nutr.carbohydrates || nutr.carbos  || r.carbos)
-    };
-  });
+  const simplified = rawItems.slice(0, 40).map(r => ({
+    id:      r.id || r.slug,
+    name:    r.name,
+    desc:    (r.headline || r.description || '').slice(0, 100),
+    min:     parseDuration(r.prepTime || r.totalTime || r.time),
+    tags:    (r.tags || []).map(t => t.name || t.slug || t).filter(t => typeof t === 'string').slice(0, 6),
+    cat:     r.category?.name || r.subcategory?.name || null,
+    // Pass the raw nutrition object – Claude handles any format
+    rawNutr: r.nutritionalValues ?? r.nutrition ?? {
+      calories: r.calories, proteins: r.proteins, fats: r.fats, carbos: r.carbos
+    }
+  }));
 
   const userMsg = `${simplified.length} retter fra HelloFresh Norge – score alle:
 ${JSON.stringify(simplified)}`;
@@ -711,7 +777,25 @@ function buildCard(dish, idx) {
     </div>`;
 }
 
+function buildRow(dish, rank) {
+  const n = dish.nutrition || {};
+  const parts = [];
+  if (n.kcal     != null) parts.push(`${n.kcal} kcal`);
+  if (n.protein  != null) parts.push(`${n.protein}g prot`);
+  if (n.saturated_fat != null) parts.push(`${n.saturated_fat}g met.fett`);
+  if (dish.time  != null) parts.push(`⏱ ${dish.time} min`);
+  return `<div class="dish-row">
+    <div class="row-rank">#${rank}</div>
+    <div class="row-info">
+      <div class="row-name">${esc(dish.name)}</div>
+      ${parts.length ? `<div class="row-meta">${esc(parts.join(' · '))}</div>` : ''}
+    </div>
+    <div class="row-score">${dish.score ?? '–'}</div>
+  </div>`;
+}
+
 function renderAll() {
+  // Main 5 cards
   const container = document.getElementById('cards');
   container.innerHTML = '';
   shown.forEach((dish, idx) => {
@@ -721,6 +805,23 @@ function renderAll() {
     slot.innerHTML = buildCard(dish, idx);
     container.appendChild(slot);
   });
+
+  // Top 15
+  document.getElementById('top15-list').innerHTML =
+    allDishes.slice(0, 15).map((d, i) => buildRow(d, i + 1)).join('') ||
+    '<p class="empty-note">Ingen retter tilgjengelig.</p>';
+
+  // Quick ≤15 min
+  const q15 = allDishes.filter(d => d.time != null && d.time <= 15).slice(0, 3);
+  document.getElementById('quick15-list').innerHTML =
+    q15.length ? q15.map((d, i) => buildRow(d, i + 1)).join('') :
+    '<p class="empty-note">Ingen retter klare på under 15 min denne uken.</p>';
+
+  // Quick ≤20 min (show top 3, may overlap with ≤15)
+  const q20 = allDishes.filter(d => d.time != null && d.time <= 20).slice(0, 3);
+  document.getElementById('quick20-list').innerHTML =
+    q20.length ? q20.map((d, i) => buildRow(d, i + 1)).join('') :
+    '<p class="empty-note">Ingen retter klare på under 20 min denne uken.</p>';
 }
 
 // ── Swap & Undo ────────────────────────────────────────────────────────────
