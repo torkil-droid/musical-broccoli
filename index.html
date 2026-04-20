@@ -482,29 +482,36 @@ function parseDuration(iso) {
 }
 
 // ── Claude scoring ─────────────────────────────────────────────────────────
+function extractNum(v) {
+  if (v == null) return null;
+  if (typeof v === 'number') return v;
+  const m = String(v).match(/[\d.]+/);
+  return m ? parseFloat(m[0]) : null;
+}
+
 async function scoreDishes(rawItems) {
-  // Limit to 40 most recent and simplify aggressively to reduce token usage
   const simplified = rawItems.slice(0, 40).map(r => {
     const nutr = r.nutritionalValues || r.nutrition || {};
     return {
       id: r.id || r.slug,
       name: r.name,
-      desc: (r.headline || r.description || '').slice(0, 120),
-      min: parseDuration(r.prepTime || r.totalTime),
-      tags: (r.tags || []).map(t => t.name || t).filter(Boolean).slice(0, 6),
+      desc: (r.headline || r.description || '').slice(0, 100),
+      min: parseDuration(r.prepTime || r.totalTime || r.time),
+      tags: (r.tags || []).map(t => t.name || t.slug || t).filter(t => typeof t === 'string').slice(0, 6),
       cat: r.category?.name || r.subcategory?.name || null,
-      // Try all known HF nutritional field names
-      kcal: nutr.energyKcal || nutr.kcal || nutr.calories || null,
-      prot: nutr.proteins   || nutr.protein || null,
-      fat:  nutr.fats       || nutr.fat || null,
-      satfat: nutr.saturatedFat || nutr.saturatedFats || nutr.saturated_fat || null,
-      carb: nutr.carbohydrates || nutr.carbs || nutr.carbohydrate || null
+      kcal:   extractNum(nutr.energyKcal   || nutr.kcal    || r.calories),
+      prot:   extractNum(nutr.proteins     || nutr.protein  || r.proteins),
+      fat:    extractNum(nutr.fats         || nutr.fat      || r.fats),
+      satfat: extractNum(nutr.saturatedFat || nutr.saturatedFats || nutr.saturated_fat),
+      carb:   extractNum(nutr.carbohydrates || nutr.carbos  || r.carbos)
     };
   });
 
-  const userMsg = `Her er ${simplified.length} retter fra HelloFresh Norge. Score alle og returner kun JSON:
-
+  const userMsg = `${simplified.length} retter fra HelloFresh Norge – score alle:
 ${JSON.stringify(simplified)}`;
+
+  // Prefill forces Claude to output pure JSON with no preamble
+  const PREFILL = '{"dishes":[';
 
   const res = await fetch(CLAUDE_API, {
     method: 'POST',
@@ -516,20 +523,23 @@ ${JSON.stringify(simplified)}`;
     },
     body: JSON.stringify({
       model: MODEL,
-      max_tokens: 16000,
+      max_tokens: 8192,
       system: SCORING_SYSTEM,
-      messages: [{ role: 'user', content: userMsg }]
+      messages: [
+        { role: 'user', content: userMsg },
+        { role: 'assistant', content: PREFILL }
+      ]
     })
   });
 
   const data = await res.json();
   if (!res.ok) throw new Error(data.error?.message || `Claude API-feil ${res.status}`);
 
-  const text = (data.content || []).filter(b => b.type === 'text').map(b => b.text).join('');
-  console.log('Claude raw response:', text.slice(0, 500));
+  const tail = (data.content || []).filter(b => b.type === 'text').map(b => b.text).join('');
+  const text = PREFILL + tail;
   const parsed = parseJSONFull(text);
   if (!parsed?.dishes?.length) {
-    console.error('Full Claude response:', text);
+    console.error('Claude response:', text.slice(0, 800));
     throw new Error('Claude klarte ikke å score rettene. Prøv igjen.');
   }
   return parsed.dishes;
