@@ -1,0 +1,701 @@
+<!DOCTYPE html>
+<html lang="no">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <title>HelloFresh Middagsvelger</title>
+  <style>
+    :root {
+      --green-dark: #2D6A4F;
+      --green-bg: #F0F7F4;
+      --green-accent: #52B788;
+      --green-light: #B7E4C7;
+      --white: #FFFFFF;
+      --text: #1B1B1B;
+      --text-muted: #6B7280;
+      --shadow: 0 2px 12px rgba(0,0,0,0.08);
+      --radius-card: 16px;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+      background: var(--green-bg);
+      color: var(--text);
+      min-height: 100vh;
+      padding-bottom: 48px;
+    }
+
+    /* ── Header ── */
+    .header {
+      background: var(--green-dark);
+      color: #fff;
+      padding: 20px 16px 14px;
+      text-align: center;
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+    .header h1 { font-size: 1.35rem; font-weight: 700; letter-spacing: -0.3px; }
+    .header p  { font-size: 0.82rem; opacity: 0.75; margin-top: 3px; }
+
+    /* ── Screens ── */
+    .screen { display: none; }
+    .screen.active { display: block; }
+
+    /* ── API-key screen ── */
+    .api-wrap {
+      padding: 32px 20px;
+      max-width: 440px;
+      margin: 0 auto;
+    }
+    .api-card {
+      background: var(--white);
+      border-radius: var(--radius-card);
+      padding: 28px 24px;
+      box-shadow: var(--shadow);
+    }
+    .api-card h2 { font-size: 1.15rem; color: var(--green-dark); margin-bottom: 8px; }
+    .api-card .lead {
+      font-size: 0.875rem;
+      color: var(--text-muted);
+      line-height: 1.55;
+      margin-bottom: 22px;
+    }
+    .api-input {
+      width: 100%;
+      padding: 12px 14px;
+      border: 1.5px solid #D1D5DB;
+      border-radius: 10px;
+      font-size: 0.95rem;
+      margin-bottom: 12px;
+      outline: none;
+      transition: border-color .2s;
+      font-family: monospace;
+      letter-spacing: 0.02em;
+    }
+    .api-input:focus { border-color: var(--green-accent); }
+    .btn-primary {
+      width: 100%;
+      padding: 14px;
+      background: var(--green-dark);
+      color: #fff;
+      border: none;
+      border-radius: 10px;
+      font-size: 1rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background .15s;
+    }
+    .btn-primary:active { background: #235c42; }
+    .privacy { margin-top: 14px; font-size: 0.78rem; color: var(--text-muted); text-align: center; line-height: 1.5; }
+
+    /* ── Loading screen ── */
+    .loading-wrap {
+      padding: 64px 20px 40px;
+      text-align: center;
+      max-width: 360px;
+      margin: 0 auto;
+    }
+    .spinner {
+      width: 52px; height: 52px;
+      border: 4px solid var(--green-light);
+      border-top-color: var(--green-dark);
+      border-radius: 50%;
+      animation: spin 0.9s linear infinite;
+      margin: 0 auto 28px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .loading-title   { font-size: 1.1rem; font-weight: 700; color: var(--green-dark); margin-bottom: 8px; }
+    .loading-sub     { font-size: 0.875rem; color: var(--text-muted); }
+
+    .steps { margin-top: 36px; display: flex; flex-direction: column; gap: 10px; }
+    .step {
+      display: flex; align-items: center; gap: 10px;
+      padding: 11px 16px;
+      background: var(--white);
+      border-radius: 10px;
+      box-shadow: var(--shadow);
+      font-size: 0.875rem;
+      color: var(--text-muted);
+      transition: color .3s;
+    }
+    .step.active { color: var(--green-dark); font-weight: 600; }
+    .step.done   { color: var(--green-accent); }
+    .step-icon   { font-size: 1.1rem; }
+
+    /* ── Results screen ── */
+    .results-wrap {
+      padding: 20px 16px;
+      max-width: 500px;
+      margin: 0 auto;
+    }
+    .results-header { margin-bottom: 18px; }
+    .results-title  { font-size: 1.15rem; font-weight: 700; color: var(--green-dark); }
+    .results-sub    { font-size: 0.83rem; color: var(--text-muted); margin-top: 4px; }
+
+    /* ── Meal card ── */
+    .card-slot { margin-bottom: 16px; overflow: hidden; border-radius: var(--radius-card); }
+
+    .meal-card {
+      background: var(--white);
+      border-radius: var(--radius-card);
+      padding: 20px;
+      box-shadow: var(--shadow);
+    }
+    .meal-card.out { animation: slideOut 280ms ease-in forwards; }
+    .meal-card.in  { animation: slideIn  280ms ease-out forwards; }
+
+    @keyframes slideOut {
+      from { transform: translateX(0);    opacity: 1; }
+      to   { transform: translateX(-60px); opacity: 0; }
+    }
+    @keyframes slideIn {
+      from { transform: translateX(60px); opacity: 0; }
+      to   { transform: translateX(0);    opacity: 1; }
+    }
+
+    .card-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 12px;
+      margin-bottom: 6px;
+    }
+    .meal-name   { font-size: 1rem; font-weight: 700; line-height: 1.3; }
+    .score-badge {
+      flex-shrink: 0;
+      background: var(--green-dark);
+      color: #fff;
+      border-radius: 20px;
+      padding: 4px 11px;
+      font-size: 0.85rem;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+    .score-reason {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      font-style: italic;
+      margin-bottom: 10px;
+      line-height: 1.45;
+    }
+    .meal-desc {
+      font-size: 0.875rem;
+      color: var(--text);
+      line-height: 1.5;
+      margin-bottom: 14px;
+    }
+
+    /* Nutrition strip */
+    .nutr-strip {
+      display: flex;
+      gap: 0;
+      margin-bottom: 14px;
+      background: var(--green-bg);
+      border-radius: 10px;
+      overflow: hidden;
+    }
+    .nutr-item {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 10px 4px;
+      border-right: 1px solid var(--green-light);
+    }
+    .nutr-item:last-child { border-right: none; }
+    .nutr-val   { font-size: 0.95rem; font-weight: 700; color: var(--green-dark); }
+    .nutr-val.warn { color: #B45309; }
+    .nutr-val.ok   { color: #15803D; }
+    .nutr-label { font-size: 0.68rem; color: var(--text-muted); margin-top: 2px; text-align: center; }
+
+    /* Tags */
+    .tags { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
+    .tag {
+      background: var(--green-light);
+      color: var(--green-dark);
+      border-radius: 6px;
+      padding: 3px 9px;
+      font-size: 0.78rem;
+      font-weight: 500;
+    }
+    .tag-time { background: #FEF9C3; color: #854D0E; }
+
+    /* Card actions */
+    .card-actions { display: flex; gap: 8px; }
+    .btn-swap {
+      flex: 1;
+      padding: 11px 8px;
+      background: var(--green-bg);
+      color: var(--green-dark);
+      border: 1.5px solid var(--green-accent);
+      border-radius: 10px;
+      font-size: 0.875rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background .15s;
+    }
+    .btn-swap:active { background: var(--green-light); }
+    .btn-swap:disabled { opacity: 0.35; cursor: not-allowed; }
+    .btn-undo {
+      padding: 11px 14px;
+      background: #FEF3C7;
+      color: #92400E;
+      border: 1.5px solid #FCD34D;
+      border-radius: 10px;
+      font-size: 0.875rem;
+      font-weight: 600;
+      cursor: pointer;
+      display: none;
+      white-space: nowrap;
+      transition: background .15s;
+    }
+    .btn-undo.show { display: block; }
+    .btn-undo:active { background: #FDE68A; }
+
+    /* Footer link */
+    .footer-link {
+      display: block;
+      text-align: center;
+      margin-top: 24px;
+      color: var(--text-muted);
+      font-size: 0.8rem;
+      cursor: pointer;
+      text-decoration: underline;
+    }
+
+    /* Error */
+    .error-wrap { padding: 24px 20px; max-width: 440px; margin: 0 auto; }
+    .error-box {
+      background: #FEE2E2;
+      border: 1px solid #FCA5A5;
+      color: #B91C1C;
+      border-radius: 12px;
+      padding: 20px;
+      font-size: 0.9rem;
+      line-height: 1.6;
+    }
+    .error-box strong { display: block; margin-bottom: 6px; font-size: 1rem; }
+    .btn-retry {
+      display: block; width: 100%; margin-top: 14px;
+      padding: 11px; background: var(--green-dark); color: #fff;
+      border: none; border-radius: 8px; font-size: 0.9rem;
+      font-weight: 600; cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+
+<div class="header">
+  <h1>🥗 HelloFresh Middagsvelger</h1>
+  <p>Ukens beste retter for familien</p>
+</div>
+
+<!-- ── Screen 1: API-nøkkel ── -->
+<div id="s-key" class="screen active">
+  <div class="api-wrap">
+    <div class="api-card">
+      <h2>Kom i gang</h2>
+      <p class="lead">Lim inn din Anthropic API-nøkkel. Claude søker opp ukens HelloFresh-retter og velger de 5 beste for familien din basert på helse og variasjon.</p>
+      <input
+        id="key-input"
+        class="api-input"
+        type="password"
+        placeholder="sk-ant-api03-…"
+        autocomplete="off"
+        autocorrect="off"
+        autocapitalize="none"
+        spellcheck="false"
+      >
+      <button class="btn-primary" onclick="start()">Hent ukens retter →</button>
+      <p class="privacy">🔒 Nøkkelen lagres kun lokalt i nettleseren (localStorage) og sendes kun til api.anthropic.com.</p>
+    </div>
+  </div>
+</div>
+
+<!-- ── Screen 2: Laster ── -->
+<div id="s-loading" class="screen">
+  <div class="loading-wrap">
+    <div class="spinner"></div>
+    <div class="loading-title">Henter ukens retter…</div>
+    <div class="loading-sub">Dette tar gjerne 20–40 sekunder</div>
+    <div class="steps">
+      <div class="step active" id="step0"><span class="step-icon">🔍</span><span>Søker på hellofresh.no</span></div>
+      <div class="step"        id="step1"><span class="step-icon">📊</span><span>Analyserer næringsinnhold</span></div>
+      <div class="step"        id="step2"><span class="step-icon">⭐</span><span>Scorer rettene for din familie</span></div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Screen 3: Resultater ── -->
+<div id="s-results" class="screen">
+  <div class="results-wrap">
+    <div class="results-header">
+      <div class="results-title">🌿 Ukens 5 beste retter</div>
+      <div class="results-sub">Trykk 🔄 for å bytte ut en rett mot neste beste alternativ</div>
+    </div>
+    <div id="cards"></div>
+    <span class="footer-link" onclick="reset()">Bytt API-nøkkel / søk på nytt</span>
+  </div>
+</div>
+
+<!-- ── Screen 4: Feil ── -->
+<div id="s-error" class="screen">
+  <div class="error-wrap">
+    <div class="error-box">
+      <strong>Noe gikk galt</strong>
+      <span id="err-msg"></span>
+      <button class="btn-retry" onclick="retry()">Prøv igjen</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── Constants ──────────────────────────────────────────────────────────────
+const STORE_KEY = 'hf_api_key';
+const MODEL     = 'claude-sonnet-4-20250514';
+const API_URL   = 'https://api.anthropic.com/v1/messages';
+
+const SYSTEM = `Du er en middagsplanlegger for en norsk familie i Trondheim: 2 voksne + barn 3,5 år. Den ene voksne har høyt kolesterol.
+
+OPPGAVE:
+1. Bruk web_search-verktøyet til å søke opp hellofresh.no/menus og hent ALLE ukens tilgjengelige middagsretter med næringsinnhold per porsjon.
+2. Score hver rett 1–10 etter familiekriteriene nedenfor.
+3. Svar KUN med et gyldig JSON-objekt – ingen forklaring, ingen markdown-kodeblokk, bare ren JSON.
+
+FAMILIEKRITERIER FOR SCORING (1–10):
+- Lavt mettet fett er svært viktig pga. kolesterol (under 4g = bonus, over 7g = trekk)
+- Fisk og sjømat foretrekkes sterkt (+2)
+- Hvitt kjøtt (kylling, kalkun, svin) er OK (+1)
+- Rødt kjøtt (storfekjøtt, lam) gir lavere score (−1)
+- Barnevennlig (mild smak, enkel, ikke eksotisk): positivt for barn 3,5 år (+1)
+- Vegetar OK hvis tilstrekkelig protein (linser, kikerter, egg, ost bra; rent grønnsaksfat trekker)
+- Tilberedning under 35 min: +0,5
+- Variasjon viktig: ikke samme proteinkilde to ganger blant de 5 beste; ikke to pasta- eller to risretter
+
+SVAR FORMAT – kun dette JSON-objektet, ingenting annet:
+{"dishes":[{"id":"slug","name":"Navn","description":"1-2 setninger","time":30,"tags":["fisk","barnevennlig"],"protein_source":"fisk","category":"pasta","nutrition":{"kcal":650,"protein":38,"fat":22,"saturated_fat":4,"carbs":60},"score":8.5,"score_reason":"Én setning"}]}
+
+Gyldige protein_source-verdier: fisk, kylling, storfekjott, lam, svin, vegetar, egg, skalldyr, annet
+Gyldige category-verdier: pasta, ris, wok, suppe, salat, burger, taco, annet
+Gyldige tags-verdier: fisk, barnevennlig, vegetar, kylling, rodtkjott, raskt, sunt, egg`;
+
+const USER_MSG = 'Søk på hellofresh.no/menus og finn alle ukens middagsretter med næringsinnhold per porsjon. Returner alle retter scoret som JSON.';
+
+// ── App state ──────────────────────────────────────────────────────────────
+let apiKey = '';
+let allDishes = [];        // alle retter sortert etter score
+let shown = [];            // de 5 kortene som vises nå
+let prev  = new Array(5).fill(null); // forrige rett per kortplass (for angre)
+
+// ── Init ───────────────────────────────────────────────────────────────────
+(function init() {
+  const stored = localStorage.getItem(STORE_KEY);
+  if (stored) document.getElementById('key-input').value = stored;
+  document.getElementById('key-input').addEventListener('keydown', e => {
+    if (e.key === 'Enter') start();
+  });
+})();
+
+// ── Screen helpers ─────────────────────────────────────────────────────────
+function show(id) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+}
+
+function setStep(n) {
+  [0,1,2].forEach(i => {
+    const el = document.getElementById('step' + i);
+    el.classList.remove('active','done');
+    if (i < n)  el.classList.add('done');
+    if (i === n) el.classList.add('active');
+  });
+}
+
+// ── Entry points ───────────────────────────────────────────────────────────
+function start() {
+  const val = document.getElementById('key-input').value.trim();
+  if (!val.startsWith('sk-')) {
+    alert('Vennligst lim inn en gyldig Anthropic API-nøkkel (starter med sk-)');
+    return;
+  }
+  apiKey = val;
+  localStorage.setItem(STORE_KEY, apiKey);
+  fetch_dishes();
+}
+
+function reset() {
+  show('s-key');
+}
+
+function retry() {
+  if (apiKey) fetch_dishes();
+  else show('s-key');
+}
+
+// ── Anthropic API – agentic loop ───────────────────────────────────────────
+async function fetch_dishes() {
+  show('s-loading');
+  setStep(0);
+
+  try {
+    const messages = [{ role: 'user', content: USER_MSG }];
+    let finalText = '';
+    let stepIdx = 0;
+
+    for (let iter = 0; iter < 20; iter++) {
+      // Progress step hints
+      if (iter === 1 && stepIdx < 1) { setStep(1); stepIdx = 1; }
+      if (iter >= 3 && stepIdx < 2) { setStep(2); stepIdx = 2; }
+
+      const res = await fetch(API_URL, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'anthropic-version': '2023-06-01',
+          'x-api-key': apiKey,
+          'anthropic-dangerous-direct-browser-access': 'true'
+        },
+        body: JSON.stringify({
+          model: MODEL,
+          max_tokens: 8192,
+          system: SYSTEM,
+          tools: [{ type: 'web_search_20250305', name: 'web_search' }],
+          messages
+        })
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error?.message || `API-feil ${res.status}`);
+
+      // Append assistant turn to conversation
+      messages.push({ role: 'assistant', content: data.content });
+
+      if (data.stop_reason === 'end_turn') {
+        finalText = (data.content || [])
+          .filter(b => b.type === 'text')
+          .map(b => b.text)
+          .join('');
+        break;
+      }
+
+      if (data.stop_reason === 'tool_use') {
+        // Return tool_result for each tool_use block (web_search is server-side;
+        // sending an empty content lets Anthropic populate the result)
+        const results = (data.content || [])
+          .filter(b => b.type === 'tool_use')
+          .map(b => ({ type: 'tool_result', tool_use_id: b.id, content: '' }));
+        if (results.length) messages.push({ role: 'user', content: results });
+      }
+    }
+
+    setStep(2);
+
+    const dishes = parseJSON(finalText);
+    if (!dishes || dishes.length === 0)
+      throw new Error('Klarte ikke å hente retter fra HelloFresh. Prøv igjen – siden kan være opptatt.');
+
+    allDishes = [...dishes].sort((a, b) => (b.score || 0) - (a.score || 0));
+    shown = pickFive(allDishes);
+    prev  = new Array(5).fill(null);
+
+    renderAll();
+    show('s-results');
+
+  } catch (err) {
+    document.getElementById('err-msg').textContent = ' ' + err.message;
+    show('s-error');
+  }
+}
+
+// ── JSON extraction ────────────────────────────────────────────────────────
+function parseJSON(text) {
+  text = (text || '').trim();
+
+  // 1. Straight parse
+  try { const p = JSON.parse(text); if (p?.dishes) return p.dishes; } catch {}
+
+  // 2. Find outermost {...} that contains "dishes"
+  const start = text.indexOf('{');
+  if (start !== -1) {
+    try {
+      const p = JSON.parse(text.slice(start));
+      if (p?.dishes) return p.dishes;
+    } catch {}
+    // Try to find matching closing brace
+    let depth = 0, end = -1;
+    for (let i = start; i < text.length; i++) {
+      if (text[i] === '{') depth++;
+      else if (text[i] === '}') { depth--; if (depth === 0) { end = i; break; } }
+    }
+    if (end !== -1) {
+      try { const p = JSON.parse(text.slice(start, end + 1)); if (p?.dishes) return p.dishes; } catch {}
+    }
+  }
+
+  // 3. Code block
+  const cm = text.match(/```(?:json)?\s*([\s\S]*?)```/);
+  if (cm) { try { const p = JSON.parse(cm[1].trim()); if (p?.dishes) return p.dishes; } catch {} }
+
+  return null;
+}
+
+// ── Initial selection with variety constraints ─────────────────────────────
+function pickFive(sorted) {
+  const sel = [];
+  const proteins = new Set();
+  const catCount = {};
+  let redMeat = 0;
+
+  for (const d of sorted) {
+    if (sel.length >= 5) break;
+    const ps  = d.protein_source || 'annet';
+    const cat = d.category || 'annet';
+    const red = ['storfekjott','lam'].includes(ps);
+    if (proteins.has(ps)) continue;
+    if ((cat === 'pasta' || cat === 'ris') && (catCount[cat] || 0) >= 1) continue;
+    if (red && redMeat >= 1) continue;
+    sel.push(d);
+    proteins.add(ps);
+    catCount[cat] = (catCount[cat] || 0) + 1;
+    if (red) redMeat++;
+  }
+
+  // Fallback: fill without constraints
+  for (const d of sorted) {
+    if (sel.length >= 5) break;
+    if (!sel.find(s => s.id === d.id)) sel.push(d);
+  }
+
+  return sel;
+}
+
+// ── Find best replacement for slot i ──────────────────────────────────────
+function bestReplacement(slotIdx) {
+  const others  = shown.filter((_, i) => i !== slotIdx);
+  const oProts  = new Set(others.map(d => d.protein_source || 'annet'));
+  const oCats   = {};
+  others.forEach(d => { const c = d.category || 'annet'; oCats[c] = (oCats[c] || 0) + 1; });
+  const oRed    = others.filter(d => ['storfekjott','lam'].includes(d.protein_source || '')).length;
+  const usedIds = new Set(shown.map(d => d.id));
+
+  // First pass: honour variety rules
+  for (const d of allDishes) {
+    if (usedIds.has(d.id)) continue;
+    const ps  = d.protein_source || 'annet';
+    const cat = d.category || 'annet';
+    const red = ['storfekjott','lam'].includes(ps);
+    if (oProts.has(ps)) continue;
+    if ((cat === 'pasta' || cat === 'ris') && (oCats[cat] || 0) >= 1) continue;
+    if (red && oRed >= 1) continue;
+    return d;
+  }
+
+  // Fallback: any unused dish
+  for (const d of allDishes) {
+    if (!usedIds.has(d.id)) return d;
+  }
+
+  return null;
+}
+
+// ── Rendering ──────────────────────────────────────────────────────────────
+const TAG_MAP = {
+  fisk: '🐟 Fisk', barnevennlig: '👶 Barnevennlig', vegetar: '🥗 Vegetar',
+  kylling: '🍗 Kylling', rodtkjott: '🥩 Rødt kjøtt',
+  raskt: '⚡ Raskt', sunt: '💚 Sunt', egg: '🥚 Egg'
+};
+
+function esc(s) {
+  return String(s ?? '')
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function satClass(val) {
+  if (val == null) return '';
+  return val <= 4 ? 'ok' : val >= 7 ? 'warn' : '';
+}
+
+function buildCard(dish, idx) {
+  const n    = dish.nutrition || {};
+  const tags = (dish.tags || []).map(t => `<span class="tag">${esc(TAG_MAP[t] || t)}</span>`).join('');
+  const time = dish.time ? `<span class="tag tag-time">⏱ ${esc(dish.time)} min</span>` : '';
+  const hasPrev = prev[idx] !== null;
+
+  return `
+    <div class="meal-card" id="card-${idx}">
+      <div class="card-top">
+        <div class="meal-name">${esc(dish.name)}</div>
+        <div class="score-badge">${dish.score != null ? dish.score : '–'}&thinsp;/&thinsp;10</div>
+      </div>
+      <div class="score-reason">${esc(dish.score_reason)}</div>
+      <div class="meal-desc">${esc(dish.description)}</div>
+      <div class="nutr-strip">
+        <div class="nutr-item"><span class="nutr-val">${n.kcal ?? '–'}</span><span class="nutr-label">kcal</span></div>
+        <div class="nutr-item"><span class="nutr-val">${n.protein != null ? n.protein+'g' : '–'}</span><span class="nutr-label">Protein</span></div>
+        <div class="nutr-item"><span class="nutr-val ${satClass(n.saturated_fat)}">${n.saturated_fat != null ? n.saturated_fat+'g' : '–'}</span><span class="nutr-label">Met.fett</span></div>
+        <div class="nutr-item"><span class="nutr-val">${n.carbs != null ? n.carbs+'g' : '–'}</span><span class="nutr-label">Karbo</span></div>
+      </div>
+      <div class="tags">${tags}${time}</div>
+      <div class="card-actions">
+        <button class="btn-swap" onclick="swap(${idx})">🔄 Bytt</button>
+        <button class="btn-undo ${hasPrev ? 'show' : ''}" id="undo-${idx}" onclick="undo(${idx})">↩️ Angre</button>
+      </div>
+    </div>`;
+}
+
+function renderAll() {
+  const container = document.getElementById('cards');
+  container.innerHTML = '';
+  shown.forEach((dish, idx) => {
+    const slot = document.createElement('div');
+    slot.className = 'card-slot';
+    slot.id = 'slot-' + idx;
+    slot.innerHTML = buildCard(dish, idx);
+    container.appendChild(slot);
+  });
+}
+
+// ── Swap & Undo ────────────────────────────────────────────────────────────
+function swap(idx) {
+  const replacement = bestReplacement(idx);
+  if (!replacement) { alert('Ingen flere retter å bytte til!'); return; }
+
+  prev[idx]  = shown[idx];
+  shown[idx] = replacement;
+
+  const slot    = document.getElementById('slot-' + idx);
+  const oldCard = document.getElementById('card-' + idx);
+
+  oldCard.classList.add('out');
+  oldCard.addEventListener('animationend', () => {
+    slot.innerHTML = buildCard(replacement, idx);
+    const newCard = document.getElementById('card-' + idx);
+    newCard.classList.add('in');
+    newCard.addEventListener('animationend', () => newCard.classList.remove('in'), { once: true });
+  }, { once: true });
+}
+
+function undo(idx) {
+  if (!prev[idx]) return;
+  const restored = prev[idx];
+  shown[idx] = restored;
+  prev[idx]  = null;
+
+  const slot    = document.getElementById('slot-' + idx);
+  const oldCard = document.getElementById('card-' + idx);
+
+  oldCard.classList.add('out');
+  oldCard.addEventListener('animationend', () => {
+    slot.innerHTML = buildCard(restored, idx);
+    const newCard = document.getElementById('card-' + idx);
+    newCard.classList.add('in');
+    newCard.addEventListener('animationend', () => newCard.classList.remove('in'), { once: true });
+  }, { once: true });
+}
+</script>
+</body>
+</html>
